@@ -3,3 +3,269 @@ See http://perlmonks.org/?node_id=1057058
 The goal is to make policies for everything listed in Ch 21
 of Programming Perl 4th Edition, or identify the set of existing
 policies that already do that.
+
+----
+
+1. Watch for missing else clause:
+    Make sure an elsif chain has a final else.
+
+2. Detect repeated strings and regexes:
+    There's a "magic numbers" policy that detects "magic numbers", and
+    makes the suggestion that these be made into symbolic constants.  There
+    should be something similar for strings and regexes that detect
+    repeated uses of the same constant string or regex, and suggests
+    putting that in a variable so that it doesn't ever need to be changed
+    in more than one place
+
+3. Detect floating point slop?
+    Is it possible to detect floating point exactness checks that
+    probably need slop?  I can't think of one, but currently perlcritic
+    gives no warnings on this:
+        my($x, $y) = ( rand(), rand() );
+        if ($x == $y) { print "Same\n" }
+        else          { print "Different\n" }
+    Should it?
+
+4. Recommend Env module
+    Using $ENV{SOME_VARIABLE_NAME} is not merely cumbersome; more importantly,
+    it is prone to error, because the hash reference is not typo-checked.
+    Although this only works on constant strings, you could do
+        use Env qw(SOME_VARIABLE_NAME);
+    This has saved my butt often enough I think it is worth it.
+
+5. Recommend considering NEXT (or sometimes c3 mro) over SUPER
+    In complex object hierarchies, it is often preferable to use NEXT::method
+    instead of SUPER::method.  It doesn't apply in all cases, but when you want
+    it, you *reallly* want it.  And while it is true that in newer
+    perls you can get at some of that with c3 mro, but that doesn't
+    include the
+        $self->EVERY::LAST::Init();
+    suggested for the inherited mass-initializer (nee constructor), nor the
+        $self->EVERY::Destroy;
+    I have used these to excellent effect in hierarchies with hundreds of
+    classes, and I couldn't imagine trying to do it the other way.  Well,
+    actually, I *can* imagine that, because the first time I did it the
+    hard way, and it tangled my brain.  suggested for the inherited
+    mass-finalizer (nee destructor).
+
+6. Detect $! going to STDOUT
+    We've got a problem of people without enough Unix background sending
+    error messages out stdout instead of stderr.  I would suggest that any time
+    you see $! going out STDOUT, that this is probably a mistake and should be
+    flagged.
+
+7. Make sure the ||die args match what it's or-dying.
+    More sophisticated processing might check if this is an ||die on a
+    syscall and make sure that the args match.  I am sick and tired of
+    cut&paste code doing:
+        open(IN,  "< $infile")    || die "$0: Can't open $infile: $!";
+        open(OUT, "< $outfile")   || die "$0: Can't open $infile: $!";
+    Notice that the second one has the wrong variable in the error message.
+
+8. Not specifying the encoding of a 3-arg open, nor a binmode soon thereafter.
+   The problem is that this pesters people opening binary files.  I don't
+   know whether getting them to specify something like this would help:
+        open(BINPUT, "< :bytes", $bin_inputfile) || die .....;
+        open(TINPUT, "< :utf8", $utf8_inputfile) || die .....;
+
+9. The argument to exit() is available only as 8 bits to the parent doing
+   the wait.  Literals that are outside the 0..255 should be flagged.
+   This also applies to POSIX versions.
+
+10. Using the fc function
+    These:
+        lc($a) cmp lc($b)
+        uc($a) cmp uc($b)
+    should usually be these:
+        fc($a) cmp fc($b)
+
+11.  Detect wasteful stats
+    Things like this:
+        if (-e $file && -f $file && -r $file && -o $file)
+    should be
+        if (-e $file && -f _ && -r _ && -o _)
+
+12. Detect unguarded -T/-B
+    If you do a -T or -B on a file, it opens and reads it. This will block on
+    certain kinds of non-plainfiles, like named pipes.  So this:
+        if (-T $file)
+    should always have some sort of guard like this:
+        if (-f $file && -T $file)
+    And yes, that one you have to actually repeat, because it has to open
+    the file and so a stat buff won't help you.
+
+13. Too many global variables
+    I keep coming across source modules, whether main programs or sometimes
+    module files, where there are upwards of a hundred global or de-facto
+    global (file-scoped lexical) variables.  This is insane.
+
+14. Forgetting to use charnames
+    I do not want to see things like \xA0 or \x{200A} in my interpolated
+    strings or regexes. Make them use charnames and the appropriate named
+    characters.
+
+15. Forgetting to convert signals to exceptions
+    If you ever see an END or a DESTROY, then that code is relying on signals
+    like ^C (SIGINT) or SIGHUP or whatnot being converted into an exception
+    for correct behavior.  A use sigtrap can arrange that easily enough.
+
+16. People should not use an explicitly written out $_ variable in an operation
+    where that is the default variable.  I see this in $_ =~ /pat/ and chomp()
+    etc, and it is confusing.  If you want a named variable, then by all means
+    use one.  But if you are going to use $_, then *really* use it.
+
+17. Forgetting to localize $_ and $/ in a function that uses readline() or <FH>.
+
+18. Allowing a lax policy that specifically ALL_CAP handle names in the
+    main program. Those are normal in a main, whereas in a subroutine,
+    become much more suspect.
+
+19. Use File::Temp
+    I keep finding code that uses something like
+        my $name = basename($0);
+        my $temp = "$name.$$";
+        open(TMP, "> $temp") ....
+    I feel like the "xxxx.$$" anti-pattern is one that indicates that people
+    should be using the File::Temp module instead.
+
+20. Use File::Basename
+    I keep finding code that incorrectly tries to find the dirname, basename, or
+    file extension by hand using regexes.  They always always do it wrong.  Surely
+    it must be possible to identify the most common (anti-)patterns for this and
+    tell them to instead use the File::Basename module.
+
+21. Use the OO versions of the builtins
+    I keep seeing stuff doing (stat($file))[9], and it bugs me.  We've
+    had the improved version since time immemorial:
+        File::stat
+        User::grent
+        User::pwent
+        Time::gmtime
+        Time::localtime
+        Net::hostent
+        Net::netent
+        Net::protoent
+        Net::servent
+    I would really really really like to see list-context calls to those
+    builtins using the nicer OO versions instead.
+
+22. Use POSIX::strftime
+    If I see one more $year+1900 I'm going to puke.   So instead of even using
+    Time::localtime or Time::gmtime, I want people to the POSIX strftime function
+    instead of rolling their own sprintfs.
+
+    I suppose one could suggest Time::Piece for some of that, but that module
+    was standard until 5.10, whereas POSIX::strftime has always been there.
+
+23. Identify code that needs a topicalizer
+    I a million times see repeated matches and/or substitutions against
+    the same named variable.
+
+        if ($some_long_variable[$cur_index]{SUBFIELD} =~ /foo/) {
+            $some_long_variable[$cur_index]{SUBFIELD} =~ s/foo/bar/g;
+            $some_long_variable[$cur_index]{SUBFIELD} =~ s/xxx/censored/g;
+            $some_long_variable[$cur_index]{SUBFIELD} =~ s/\.$/!/;
+        }
+
+    That should of course be be:
+
+        for ($some_long_variable[$cur_index]{SUBFIELD}) {
+            if (/foo/) {
+                 s/foo/bar/g;
+                 s/xxx/censored/g;
+                 s/\.$/!/;
+            }
+        }
+
+24. Detect subs declared right in the middle of the main line code.
+    This may be hard to do right, due to module inits, but it is
+    very confusing to read.
+
+25. Detect things that have a literal but should be using $0.
+
+        print STDERR "snuffle: Cannot open $input: $!\n";
+        open(IN, "< $input") || die "snuffle: Cannot open $input: $!";
+
+26. Advocate pass-by-named-parameter
+    Catch things that are using more than N argument without using pass-by-named
+    parameter and try to talk them into it.  A 9-arg function is intolerable
+    without labelling, not to mention freedom to reorder and default.  With
+        fn(INPUT => $infile, OUTPUT => $outname);
+    you have a change, and it is extensible.
+
+27. Don't quote scalars.
+    Almost no one who quotes scalars as "$s" or "$ARGV[1]" is doing
+    so for the ref-destroying properties.  This is almost always a
+    mistake, and should be flagged for the same.  Of course, arrays
+    and slices are different.
+
+28. Don't quote numbers
+    I also find people quoting numbers, even just integers.  This is very
+    confusing.
+        $x = "2000000";
+
+29. Suggest underscores in long numbers.
+    I cannot ever read things with too many digits. Please get people to
+    use underscores.
+        $x = 2_000_000;
+
+30. Detect and flag the old lowercase versions of stdin, stdout, stderr as
+    working only in the main package.
+
+31. Use the capping recommendations from Camel4, p 704:
+
+      $ALL_CAPS_HERE   # constants only (beware clashes with Perl vars!)
+      $Some_Caps_Here  # package-wide global/static
+      $no_caps_here    # function scope my() or local() variables
+
+32. Forbid the use of CamelCase, except for the module name proper where
+    for filesystem reasons, it may be inevitable.
+
+33. Use all lowercase for function names, but all things like read_RCS_info().
+
+34. Forbid all uppercase function names except for the implicitly called stuff.
+    Note that functions assigned to signal handlers should be all caps because
+    they are implicit:
+        $SIG{HUP} = \&main::CATCH_HANGUP_SIGNAL;
+
+35. Catch people doing
+        while (<input>) {
+            $count++;
+            ...
+        }
+    because they don't know about the $. var.
+
+36. Catch people using system() or backticks just to do basic Perl builtins
+    like un-optioned rm or chmod or chgrp or ls, etc.
+
+37. Stop using backticks in void context!
+
+38. Detect calls to system that use a single string that don't need to, and
+    probably need a list form instead due to filename issues or hidden
+    redirections, etc.
+        system("cp $input $output");
+    should be
+        system("cp", $input, $output);
+
+39. Require parens on (most) function calls even when they take no arguments:
+        my $start_time = localtime( time() );
+        open(my $fh, "< :utf8", $inputname)
+            die "$0: Cannot open $inputname for input: $!";
+    An exception list of the normal print, printf, warn, die, carp, croak, etc.
+    would be needed.
+
+    Also, it's ok if there is a natural paren due to other syntactic constraints:
+        unless (open my $fh, "< :utf8", $inputname) {
+            confess "Cannot open $inputname for input: $!";
+        }
+
+    And of course, method calls of no arguments never need empty parens the
+    way buildtins like time() do, because something like $st->mtime has only
+    one possible parse.
+
+40. It isn't safe to use constants the old way:
+        use Fcntl;
+        sysopen(my $fh, $path, &O_CREATE|&O_EXCL|&O_WRONLY, 0666)
+    because then your typo isn't caught till run time.  It should be
+    this instead:
+        sysopen(my $fh, $path, O_CREAT|O_EXCL|O_WRONLY, 0666)
