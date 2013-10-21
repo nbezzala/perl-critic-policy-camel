@@ -269,3 +269,450 @@ policies that already do that.
     because then your typo isn't caught till run time.  It should be
     this instead:
         sysopen(my $fh, $path, O_CREAT|O_EXCL|O_WRONLY, 0666)
+
+41. Detecting sequence of prints that should be using a heredoc instead.
+
+42. Calling Fully::Qualified::Functions instead of using importing.
+    Truth be told, this may be the only way to do it if there are
+    import conflicts, but the problem is that people here are thinking
+    that this is the normal way to do it, which makes it annoyingly hard
+    to override a function because you have to chase down all their FQ
+    uses.
+
+43. Assigning the result of chop or chomp doesn't usually do what you want,
+    especially if it is back to the same variable:
+
+        $x = chop($x);
+        $x = chomp($x);
+
+    As opposed to
+
+        $last_char    = chop($string);
+        $delete_count = chomp($string);
+
+44. Forbid the Microsoft global/local naming convention.
+
+    I get so ticked when I see a program that has 100 variables
+    all named $g_foo and $g_bar, then a function with 50 variables
+    all named things like $l_foo and $l_bar.  Took me forever to
+    figure out what they were doing.  They were using that to indicate
+    scope, instead of using the normal capitalization conventions of:
+
+        our %Hash_of_Functions;
+        my  $hit_count;
+
+45. Make sure constant functions are really constant.
+    I see too much of this, which the compiler won't know to inline:
+
+        sub MAXPHOTOSASSHOT { 999999 }
+
+    because they forgot the void prototype, or using the constant pragma:
+
+        sub MAXPHOTOSASSHOT() { 999999 }
+
+    Although of course that really should be
+
+        sub MAX_PHOTOS_AS_SHOT() { 999_999 }
+
+46. Making private scopes for variables private to a few functions,
+    but not wrapping them in a BEGIN/INIT/CHECK/UNITCHECK block
+
+        {
+            my $counter = 42;
+            sub inc_counter() { return ++$counter }
+            sub dec_counter() { return --$counter }
+        }
+
+    needs to be
+
+        BEGIN {
+            my $counter = 42;
+            sub inc_counter() { return ++$counter }
+            sub dec_counter() { return --$counter }
+        }
+
+    Or else you don't guarantee that the data is initialized before the
+    function is called.
+
+47. Leaving out the pod altogether.
+
+48. Having a $VERSION that doesn't use RCS extraction:
+
+    our($VERSION) = q($Revision: 1.5 $) =~ / \b ( \d+ (?: \. \d+ )+ ) \b /x;
+
+49. Using substr reassignment to delete the first char, or first N chars:
+
+        $s = substr($s, 1);
+
+    instead of
+
+        substr($s, 0, 1) = q();
+
+    or even better -- MUCH better --
+
+        $s =~ s/^.//s;
+
+50. Using repeated substrs in something
+
+       $year   = substr($ymdhms,  0, 4);
+       $month  = substr($ymdhms,  4, 2);
+       $day    = substr($ymdhms,  6, 2);
+       $hour   = substr($ymdhms,  8, 2);
+       $minute = substr($ymdhms, 10, 2);
+       $second = substr($ymdhms, 12, 2);
+
+    instead of
+
+       ($year, $month, $day, $hour, $minute, $second) = unpack("A4 " . "A2 " x 5, $ymdhms);
+
+    or
+       ($year, $month, $day, $hour, $minute, $second) = $ymdhms =~ /(....)(..)(..)(..)(..)(..)/;
+
+    or some such. Yes, that pattern match is error prone cause it didn't check for success.
+
+51. I see lots of
+        for my $pat (@pats) {
+            if (/$pat/) { ... }
+        }
+    They don't seem to understand the expense of that recompilation.
+
+52. I see a lot of $? mishandling, but don't know how to characterize it.  Sometimes
+    it is doing something like
+        open(INPUT, "< $path" || die "couldn't open $?";
+    Actually, that's two errors: they also forgot to name the thing ($path) that
+    caused the open to fail.
+
+53. There's a lot of splitting on single characters that leads to clunky code:
+        @chars = split //, $string;
+        @chars = split / */, $string;
+    I still think if you're doing that, you're probably going at it wrong, but
+    don't know how to phrase it.
+        @chars = split / */, $string;
+    they couldn't open.  This gets me all the time.
+
+54. Don't let them try to assign to $SIG{KILL} or $SIG{STOP}.  It does no good.
+
+55. Stop using negative signal numbers in kill().
+
+56. Detect loss of precision in
+
+    $n = 123454678912345467891234546789123454678912345467891234546789123454678912345467891234546789;
+    $n++;
+    printf "%100f\n", $n;
+
+    123454678912345503297251089363603205553031037796539918776709539395604540778832853236449280.000000
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    Those are all garbage.
+
+57. There are times when
+
+        if ($x & $MASK)
+
+    is ok, but other times when
+
+        if ( ($x & $MASK) == $MASK )
+
+    is needed.  I don't know how to tell those apart, though.
+
+    BTW, the "don't use bitops" policy is stupid.  Ever worked with stat structs?
+
+58. I keep seeing a variable declared and used immediately just once, and then 200 lines
+    later in the same scope they declare the same variable again. Yes, the compiler warns
+    them, but if they don't declare it, it won't.  Private variables whose private scope
+    within the same function lasts for hundreds and even thousands of lines are dumb. I
+    almost envisions some sort of aging policy like on perishable food product packaging,
+    so every ten lines you don't use a private variable it gets a little more stale,
+    until eventually it triggers a warning that it's probably exceeded the "best if used
+    before" date on the package wrapper.  Unless it's a Twinkie, which are exempt: they
+    never get stale.
+
+59. I am really tired of see
+        @array = undef;
+        %hash  = undef;
+    And not much more enthused by
+        undef @array;
+        undef %hash;
+    I'm thinking those should usually be
+        @array = ();
+        %hash  = ();
+    but maybe I'm forgetting something.
+
+60. I'm really mistrustful of people using /\b$foo\b/ type stuff, because
+    if $foo has non-word chars, like "=" then that is requiring word chars
+    around it, and vice versa.  The flippyfloppiness of \b confuses people
+    forever, who always think it means has a space next to it.  I don't know
+    what to do about this, but it is a super common problem.  I just cannot
+    get through their heads that "= " has no boundary after the equals.
+
+61. Don't hide the error handling at the bottom after a zillion lines.  This:
+
+        if (open ...) {
+            # 750 lines later
+        }
+        else {
+            # raise exception
+        }
+
+    Should be
+
+        if (!open ...) {
+            # raise exception
+        }
+
+        # now you can have your 750 lines without hiding
+        # them in another indent level
+
+62. Using a two-space indent to hide that your McCabe number is too high is cheating.
+
+63. You cannot background jobs this way
+
+        `gzip giant-file &`;
+
+    because the file descriptor "leaks", so even though there is an ampersand,
+    the job still waits for completion. This is the same issue as
+
+        system("ssh somewhere 'gzip giant-file &'");
+
+    This was once in the Unix Programmers FAQ I think.
+
+64. There is a fundamental problem is running
+
+        $status = system("foo | bar | glarch");
+
+    and expecting to get a meaningful status there from anything but glarch.
+    There is a way to use "set pipefail" in the shells to get first failed one,
+    which is what they really want.
+
+        $status = system("set pipefail; foo | bar | glarch");
+
+    I've had to do this in Makefiles.
+
+65. The @stati variable drives me nuts. It should be @statuses or something.
+    The Latin status was a 4th not a 2nd declension noun.
+        http://en.wiktionary.org/wiki/status#Inflection_2
+    So unless they have use utf8 and @statūs, I really wish they would just
+    use the English @statuses.
+
+66. Is there a spelling option for comments too, not just pod?
+
+67. I get nervous when I see things like
+        -2**2
+    Since they are likely triggering a precedence misunderstanding: unary
+    minus is lower than exponenentiation.
+
+68. The scalar .. operator also makes me nervous.  It seems that most people
+    don't realize that both can be true on the same line.  Compare
+        /foo/ .. /bar/          # can match bar and foo on same line
+        /foo/ ... /bar/         # cannot match bar and foo on same line
+
+69. I just hate directories with trailing slashes.  It makes for messy
+    concatenations.
+
+        $dir  = "/usr/local/bin/";
+        $file = "perl";
+        $path = "$dir/$file";
+
+    I'm thinking that some sort of warning could be issued there.
+
+70. Don't open a file for writing and then flocking.  The damage has
+    already been done.  If you have an O_EXLOCK flag you can do it
+    atomically, but otherwise you have to open it for writing but not
+    creating, then get the lock, then truncate, then write, then flush
+    and close, the release the lock.
+
+71. Somehow there is this nasty meme that has propagated to a zillion files
+    to always open in "+" mode.  This makes
+        open(my $fh, "+< :utf8", "something.utf8") || die ...
+    fail on files that you do not have write access to.  And yes, it should.
+    The problem is that all operations on that $fh are read operations, never
+    write or truncate operations, so you can tell that they have used the
+    wrong mode.
+
+72. I would like a policy that flags
+
+        $foo = 'some string';
+
+    as "unneccessary suppression of variable and character interpolation".
+    That's because in our house style, you only use single quotes when you
+    have something whose expansion you are trying to suppress.  Double quotes
+    are supposed to be used unless you have a specific reason not.  That should
+    instead me:
+
+        $foo = "some string";
+
+    Because it stands out better, and because it makes it easier to later add \t
+    or whatnot.  Of course, something that needs the suppression should not trigger
+    it:
+
+        $msg = 'I have $10 in my pocket and $125.27 in my ATM account.';
+
+    Although to be honest, I tend to use q() for that so that it stands
+    out.  I find suppression of interpolation so unusual that I want it to
+    really really stand out there.
+
+    Adding fuel to the fire, I even see
+
+        if ($foo =~ m'^string') { ... }
+
+    It seems that people are thinking that that means
+
+        if ($foo =~ /\Qstring/) { ... }
+
+    Very strange.
+
+73. Don't use m// if you don't have to.
+
+    I really do not like seeing m// used when you are not
+    changing the delimiters.
+
+        if ($var =~ m/.../)  { ... }
+        if (m/.../) { ... }
+
+    It confuses me.  And yes, as you should be starting to figure out, I am
+    easily confued.  At least by this code base.
+
+74. I am extremely unfond of having the same identifer exist as both a
+    global/package variable and a lexical/my variable.  In general having
+    a $foo and an @foo and a %foo confuses me, but when they are using the
+    scalar as a my and the other two as package vars, I melt down.
+
+75. I wonder whether assignments to %SIG should sometimes be localized.
+
+        if ($something) {
+            $SIG{INT} = "IGNORE";
+            system("vi", $file");
+        }
+
+    That code almost certainly should have been written with a local:
+
+        if ($something) {
+            local $SIG{INT} = "IGNORE";
+            system("vi", $file");
+        }
+
+76.  Splicing out strings in the most confusing of all possible ways.
+
+        my $pos = index($string, "BOGOTIC");
+        if ($pos != -1) {
+            my $pre  = substr($string, 0, $pos);
+            my $post = substr($string, $pos + 7);
+            $string = $pre . $post;
+        }
+
+     There might be fencepost errors there, and certainly the magic 7
+     that is unconnected to "BOGOTIC" is abhorrent.  But they should be
+     doing just
+
+        $s =~ s/BOGOTIC//;
+
+    And they don't seem to realize.  There are a lot of index/rindex/substr
+    operations that should have been done with regex ops.
+
+77. Forgetting that a regex search is not the same as an index search.
+    For example,
+
+        $basename  = "something";
+        $timestamp = get_YYYYMMDDHHMMSS();
+        $fullname = "$basename+$timestamp.tmp";
+
+        if ($path =~ /$fullname/) { .... }
+
+    That never works because the plus that they use to join the tiemstamp to the
+    reglar name with screws up the regex.  And there's the dot.  And the lack of
+    anchoring, etc etc etc.  In that partcular case, I did suggest
+
+        if ($path =~ m(/\Q$fullname\E\z/) { .... }
+
+    or a simple index search.  They keep using index when they need m// and
+    vice versa. They just don't know which one to reach for, when.
+
+78. I wonder if there isn't a way to detect "hand processing" of command line
+    options in @ARGV and suggest using a Getopt module instead.   Usually it is
+    pretty simple to eyeball code to see that they are hand-processing options,
+    like
+
+        if ($ARGV[0] eq "-d") { ... }
+
+79. I wonder whether there is any way to find spelling mistakes on identifiers.
+
+    I am re-cursed with the selfsame problem that begat the HTTP_REFERER idiocy
+    where they forgot to spell it HTTP_REFERRER.
+
+    We have over 50 environment variables that our application is sensitive to
+    that are all like
+
+              THIS_THING_TOLERANCE
+              THAT_THING_TOLLERANCE
+        THIS_OTHER_THING_TOLERENCE
+        THAT_OTHER_THING_TOLLERENCE
+
+    and it drives you crazy. Plus there are no typo-checks if they just use
+
+              $ENV{THIS_THING_TOLERANCE}
+              $ENV{THAT_THING_TOLLERANCE}
+        $ENV{THIS_OTHER_THING_TOLERENCE}
+        $ENV{THAT_OTHER_THING_TOLLERENCE}
+
+    So this makes it really error prone.
+
+    http://theoatmeal.com/comics/misspelling
+
+    Maybe you could just check the most commonly misspelled terms?  I know
+    that the two most commonly misspelled words are "separate" and "occurrence",
+    and variations on those.  But no, that is doomed.  It has to be more than
+    any "top-N" lists like http://www.oxforddictionaries.com/words/common-misspellings
+
+    Here's an idea: How about checking for words that are misspelled with
+    an edit-distance of just 1 or maybe 2 from an accepted spelling?  That way
+    you could weed out things like LESSCHARSET or NOMHNPROC that you would
+    never catch, but finding LD_LIBARY_PATH which has a single word that is
+    an edit-distance of 1 away from LIBRARY.
+
+    Yes, this means splitting up multiword idents.  This is of course
+    really easy to do with the underscored that I am advocating for our
+    team's style guide.  It is harder but I think not impossible to do so
+    with uglyCamelCase idents.
+
+    It would help with constant hash indices, too.  Speaking of which, I
+    finally broke down and invented a way that even in private methods, my
+    object accessing is typo-safe at compile time without requiring any
+    giant heavy-weight toolchain.  For example, in a class:
+
+        use pluskeys qw(
+            FIELD_SEPARATOR_STRING
+            FIELD_SEPARATOR_REGEX
+            STRICT_COLUMN_COUNT
+            SPLIT_LIMIT
+        );
+
+    Then in a method:
+
+        sub Init {
+            _validate_object_invocant(@_);
+            my($self) = @_;
+            $self->{ +FIELD_SEPARATOR_REGEX  } = undef;
+            $self->{ +FIELD_SEPARATOR_STRING } = undef;
+            $self->clear_split_limit();
+            $self->no_strict_columns();
+        }
+
+    The way that works is that those are actually like "use constant"
+    functions, but which return the package-qualified name.  It gets
+    typo-checked at compile time so that if even I were to write
+
+        if ( $self->{ +FIELD_SEPERATOR_STRING } ) { ... }
+
+    It would catch me with a bareword error due the spelling mistake.
+    It works really well, and doesn't cost a bunch. I also use it on
+    things like the %OPT has for Getopt::Long and similar things.
+
+    I really need to upload "pluskeys.pm" to CPAN: it's saved my
+    butt more than 100 times, easy.
+
+80. Is there a way to catch people using the literal current package
+    name when they should be using __PACKAGE__ instead?
+
+81. Please stop advocating "use base" over "use parent".  Yes, ok,
+    I'm running v5.8.8, but I hate "use base" so much that I actually
+    pushed through and got parent.pm installed instead.
